@@ -1,0 +1,21 @@
+192.168.1.1:443:livebox:ok
+127.0.0.1:8080:test_refus:ko
+192.168.1.1:444:test_to:to
+192.168.1.1:80:livebox:ok
+192.168.1.1:443:livebox:ok
+192.168.1.12:80:test_to2:to
+127.0.0.1:8080:test_refus2:ko
+172.217.19.227:443:google.fr:ok
+151.101.1.69:443:stackoverflow.com:ok
+151.101.193.69:443:not specified:ok
+151.101.129.69:443:not specified:ok
+151.101.65.69:443:not specified:ok
+142.250.178.142:443:youtube.fr:ok
+94.125.164.194:443:KooR.fr:ok
+213.186.33.2:443:la-planete.net:ok
+104.18.18.92:443:amazone.fr:ok
+104.18.19.92:443:amazone.fr:ok
+99.83.179.101:443:amazone.com:ok
+75.2.51.62:443:amazone.com:ok
+34.235.198.240:443:redhat.fr:ok
+52.200.142.250:443:rehat.fr:ok
