@@ -36,14 +36,14 @@ Options :
                                                                          
                       Chemin par défaut : 'connextions.ip'
                       Format :                                           
-                       <ip> <no-port> <description>                      
+                       &lt;ip&gt; &lt;no-port&gt; &lt;description&gt;
                       Exemple:                                           
                       192.168.1.1 2783 livbox                            
                                                                          
  -o --output-path     Fichier dans lequel sont stoqués les résultats.    
                       Chemin par défaut : 'connextions_result.dat'
                       Format :                                           
-                      <ip>:<port>:<description>:<ok|ko|to>               
+                      &lt;ip&gt;:&lt;port&gt;:&lt;description&gt;:&lt;ok|ko|to&gt;
                       ok : la connexion répond correctement.             
                       ko : la connexion répond avec une erreur.          
                       to : la connexion ne réponds pas dans le temps     
