@@ -19,5 +19,5 @@
 75.2.51.62:75.2.51.62:443:ab38615dc944e506b.awsglobalaccelerator.com:amazone.com:ok
 34.235.198.240:34.235.198.240:443:ec2-34-235-198-240.compute-1.amazonaws.com:redhat.fr:ok
 52.200.142.250:52.200.142.250:443:ec2-52-200-142-250.compute-1.amazonaws.com:rehat.fr:ok
-heroku.com:54.83.79.122:443:heroku.com::ok
+heroku.com:52.201.19.49:443:heroku.com::ok
 mozilla.org:44.236.72.93:443:mozilla.org:navigateur:ok

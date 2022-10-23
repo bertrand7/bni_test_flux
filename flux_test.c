@@ -37,8 +37,8 @@ typedef int SOCKET;
 
 #define MAX_PID_LEN 30
 #define IP_STR_MAX_SIZE 20
-#define DOMAINE_STR_MAX_SIZE 256
-#define MAX_ALLOWED_LINE_SIZE 1024
+#define DOMAINE_STR_MAX_SIZE 512
+#define MAX_ALLOWED_LINE_SIZE 2048
 #define PATH_MAX_LENGTH 255
 #define BLOC_SIZE 256;
 #define DEFAULT_INPUT_PATH "connextions.ip"
@@ -72,7 +72,7 @@ void process_args (int argc, char *** argv_ptr, t_options* options) ;
 void show_info (const char* processus_name, int pid, int ppid, int fpid);
 void iniResult () ;
 void fill_ip (char *file_line, t_connexion* ip) ;
-void read_ips (t_connexion** ip_ptr, int* total) ;
+int count_lines () ;
 void writeResult (char *result_str) ;
 void processus_to_watch (char *who, t_connexion *cnx, int no_cnx, int total_cnx) ;
 void processu_pere (char * who, int pid_to_kill) ;
@@ -89,8 +89,15 @@ int main(int argc, char** argv) {
 
 	int pid, kpid, nb_cnx = 4;
 	int oppid = getppid();
-	t_connexion *ip = NULL;
-	t_connexion *ip_ptr = NULL;
+	t_connexion ip;
+	char* line;
+
+	/* varivale de manipulation du fichier */
+	char* filename = INPUT_PATH;
+	size_t read_size = 0;
+	ssize_t nb_char_read = 0;
+	int nb_lignes = 0;
+	int i = 0;
 
 	/* gestion des options entrées par l'utilistateur. */
 	t_options options = { .timeout = DEFAULT_MS_TIMEOUT, .input_path = DEFAULT_INPUT_PATH, .output_path = DEFAULT_OUTPUT_PATH };
@@ -103,28 +110,41 @@ int main(int argc, char** argv) {
 
 
 	iniResult();
-	read_ips(&ip, &nb_cnx);
+	nb_cnx = count_lines();
 	printf ("nombre de connexion à tester : %d\n", nb_cnx);
 	
-	/*pid = 1;*/
-	for (int i = 0; i < nb_cnx; i++) {
+	pid = 1;
 
+	FILE* df = fopen(filename, "r");
+
+	if (df == NULL) {
+		fprintf(stderr, "impossible d'ouvrir '%s'\n", filename);
+		exit(EXIT_FAILURE);
+	}
+	if (VERBOSE) { printf("fichier '%s' est ouvert.\n", filename); }
+
+	// sans le test sur le volume, le programme reprendrait au début sans s'arréter.
+	while (i < nb_cnx && (nb_char_read = getline(&line, &read_size, df)) != -1 ) {
+		i++;
+		if (VERBOSE) { printf ("%d:%zd:%zd\t >%s</>", nb_lignes + 1, nb_char_read, read_size, line); }
+
+		fill_ip (line, &ip );
+		if (VERBOSE) { printf ( "%s --> %d \n", ip.ip, ip.port); }
 		pid = fork();
-		ip_ptr = (ip + i);
-		if (VERBOSE) { printf ("-------------------------> %d, cnx = %s:%d, pid = %d, ppid = %d, oppid = %d\n", i, (*(ip_ptr)).ip, (*(ip_ptr)).port, getpid(), getppid(), oppid); }
+
+		if (VERBOSE) { printf ("-------------------------> %d, cnx = %s:%d, pid = %d, ppid = %d, oppid = %d\n", i, ip.ip, ip.port, getpid(), getppid(), oppid); }
 
 		switch (pid) {
 			case -1 : printf("Erreur\n");
-				free(ip);
 				return EXIT_FAILURE;
 			case 0 : show_info("fils", getpid(), getppid(), pid);
-				processus_to_watch("fils", ip_ptr, i + 1, nb_cnx);
+				processus_to_watch("fils", &ip, i, nb_cnx);
 				return EXIT_SUCCESS;
 			default : show_info("père", getpid(), getppid(), pid);
 				kpid = fork();
 				if (kpid == 0) {
 				      show_info("stimeout", getpid(), getppid(), pid);
-				      wait_and_kill("stimeout", pid, ip_ptr, i + 1, nb_cnx);
+				      wait_and_kill("stimeout", pid, &ip, i, nb_cnx);
 				      return EXIT_SUCCESS;
 				} else {
 					waitpid(pid, 0, WSTOPPED);
@@ -134,7 +154,9 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	free(ip);
+	free (line);
+	fclose(df);
+	if (VERBOSE) { printf("fichier '%s' est fermé.\n", filename); }
 	return EXIT_SUCCESS;
 }
 
@@ -204,24 +226,13 @@ void fill_ip (char *file_line, t_connexion* ip) {
 	
 }
 
-void read_ips (t_connexion** ip_ptr, int* total) {
+int count_lines () {
 	char* line;
 
 	char* filename = INPUT_PATH;
 	size_t read_size = 0;
 	ssize_t nb_char_read = 0;
-	int nb_bloc = BLOC_SIZE;
-	int nb_lignes = 0;
-	t_connexion* ip;
-
-	*ip_ptr = malloc(nb_bloc * sizeof(t_connexion));
-	if (*ip_ptr == NULL) {
-		fprintf(stderr, "MALLOC. erreur d'allocation à %d éléments de connexion. \n", nb_bloc);
-		free(*ip_ptr);
-		exit(EXIT_FAILURE);
-	}
-	ip = *ip_ptr;
-	
+	int lines_number = 0;
 
 	FILE* df = fopen(filename, "r");
 
@@ -229,32 +240,17 @@ void read_ips (t_connexion** ip_ptr, int* total) {
 		fprintf(stderr, "impossible d'ouvrir '%s'\n", filename);
 		exit(EXIT_FAILURE);
 	}
-	if (VERBOSE) { printf("fichier '%s' est ouvert.\n", filename); }
-
+	if (VERBOSE) { printf("fichier '%s' est ouvert pour comptage.\n", filename); }
 
 	while ((nb_char_read = getline(&line, &read_size, df)) != -1) {
-		if (VERBOSE) { printf ("%d:%zd:%zd\t >%s</>", nb_lignes + 1, nb_char_read, read_size, line); }
-		if (nb_lignes >= nb_bloc) {
-			nb_bloc += BLOC_SIZE;
-			if (VERBOSE) { printf ("REALLOC : %d lignes\n", nb_bloc); }
-			*ip_ptr = realloc(*ip_ptr, nb_bloc * sizeof(t_connexion));
-			if (*ip_ptr == NULL) {
-				fprintf(stderr, "REALLOC. erreur d'allocation à %d éléments de connexion. \n", nb_bloc);
-				free(*ip_ptr);
-				exit(EXIT_FAILURE);
-			}
-			ip = *ip_ptr;
-		}
-		fill_ip (line, (ip + nb_lignes));
-		if (VERBOSE) { printf ( "%s --> %d \n", (ip + nb_lignes)->ip, (ip + nb_lignes)->port); }
-		nb_lignes++;
+		lines_number++;
 	}
 
-	*total = nb_lignes;
 
 	free (line);
 	fclose(df);
 	if (VERBOSE) { printf("fichier '%s' est fermé.\n", filename); }
+	return lines_number;
 }
 
 void process_args (int argc, char *** argv_ptr, t_options* options) {
@@ -367,7 +363,7 @@ void usage() {
 	puts(" -o --output-path     Fichier dans lequel sont stoqués les résultats.    ");
 	printf("                      Chemin par défaut : '%s'\n", default_out);
 	puts("                      Format :                                           ");
-	puts("                      <fileentry>:<ip>:<port>:fqdn:<description>:<ok|ko|to>");
+	puts("                      <fileentry>:<ip>:<port>:<fqdn>:<description>:<ok|ko|to>");
 	puts("                      filentry est ce qui a été placé dans le fichier d'input");
 	puts("                      ok : la connexion répond correctement.             ");
 	puts("                      ko : la connexion répond avec une erreur.          ");
