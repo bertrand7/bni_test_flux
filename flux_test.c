@@ -1,4 +1,14 @@
 /**
+ * Copyright (c) 2022, Bertrand NICAISE.
+ * 
+ * Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * 
+ * Source: http://opensource.org/licenses/ISC
+ *  
+ **/
+/**
  * TODO : utiliser les fonction sécurisées pour strncpy
  */
 #define _GNU_SOURCE
@@ -23,11 +33,12 @@ typedef int SOCKET;
 #include <sys/types.h>   // send
 #include <netinet/in.h>  // sockaddr_in, IPPROTO_TCP
 #include <arpa/inet.h>   // hton*, ntoh*, inet_addr
+#include <netdb.h>	 //
 
 #define MAX_PID_LEN 30
 #define IP_STR_MAX_SIZE 20
 #define DOMAINE_STR_MAX_SIZE 256
-#define MAX_ALLOWED_LINE_SIZE 350
+#define MAX_ALLOWED_LINE_SIZE 1024
 #define PATH_MAX_LENGTH 255
 #define BLOC_SIZE 256;
 #define DEFAULT_INPUT_PATH "connextions.ip"
@@ -41,7 +52,9 @@ static unsigned long TIMEOUT_USECONDS = DEFAULT_MS_TIMEOUT * 1000;
 static char OUTPUT_PATH[PATH_MAX_LENGTH + 1] = DEFAULT_OUTPUT_PATH;
 static char INPUT_PATH[PATH_MAX_LENGTH + 1] = DEFAULT_INPUT_PATH;
 struct s_connexion {
+	char original[DOMAINE_STR_MAX_SIZE +1];
 	char ip[IP_STR_MAX_SIZE + 1];
+	char fqdn[DOMAINE_STR_MAX_SIZE +1];
 	char domaine[DOMAINE_STR_MAX_SIZE + 1];
 	unsigned int port;
 };
@@ -54,6 +67,7 @@ typedef struct s_options {
 } t_options;
 
 
+/* fonctions spécifiques */
 void process_args (int argc, char *** argv_ptr, t_options* options) ;
 void show_info (const char* processus_name, int pid, int ppid, int fpid);
 void iniResult () ;
@@ -64,7 +78,11 @@ void processus_to_watch (char *who, t_connexion *cnx, int no_cnx, int total_cnx)
 void processu_pere (char * who, int pid_to_kill) ;
 void wait_and_kill (char *who, int pid_to_kill, t_connexion *cnx, int no_cnx, int total_cnx) ;
 void usage() ;
+/* fonctions de lib */
 bool bni_is_tcp_connectable (const char* ip, unsigned int port, bool verbose);
+int bni_get_domain_ip (const char* ip);
+const char* bni_get_first_ip_from_fqdn (const char* fqdn, char* ip, int ip_length, int domain) ;
+const char * bni_get_fqdn (const char* ip, char* fqdn, int fqdn_max_length);
 
 
 int main(int argc, char** argv) {
@@ -139,9 +157,36 @@ void iniResult (char* output_path) {
 void fill_ip (char *file_line, t_connexion* ip) {
 	char delim[] = " ";
 	char *ptr;
+	int domain;
+	char fqdn [DOMAINE_STR_MAX_SIZE + 1];
+	char ip_str [IP_STR_MAX_SIZE + 1];
 	ptr = strtok(file_line, delim);
 	if (ptr != NULL) {
-		strncpy(ip->ip, ptr, IP_STR_MAX_SIZE);
+		
+		strncpy(ip->original, ptr, DOMAINE_STR_MAX_SIZE);
+		*(ip->original + sizeof(ip->original) -1) = '\0';
+		domain = bni_get_domain_ip (ptr);
+		switch (domain) {
+			case AF_INET6:
+				bni_get_fqdn(ptr, fqdn, sizeof(fqdn));
+				bni_get_first_ip_from_fqdn(fqdn, ip_str, sizeof(ip_str), AF_INET);
+				strncpy(ip->ip, ip_str, IP_STR_MAX_SIZE);
+				*(ip->ip + sizeof(ip->ip) -1) = '\0';
+				strncpy(ip->fqdn, fqdn, DOMAINE_STR_MAX_SIZE);
+
+				break;
+			case AF_INET:
+				bni_get_fqdn(ptr, fqdn, sizeof(fqdn));
+				strncpy(ip->ip, ptr, IP_STR_MAX_SIZE);
+				*(ip->ip + sizeof(ip->ip) -1) = '\0';
+				strncpy(ip->fqdn, fqdn, DOMAINE_STR_MAX_SIZE);
+				break;
+			default:
+				bni_get_first_ip_from_fqdn (ptr, ip_str, sizeof(ip_str), AF_INET);
+				strncpy(ip->ip, ip_str, IP_STR_MAX_SIZE);
+				strncpy(ip->fqdn, ptr, DOMAINE_STR_MAX_SIZE);
+				*(ip->fqdn + sizeof(ip->fqdn) -1) = '\0';
+		}
 		ptr = strtok(NULL, delim);
 		if (ptr != NULL) {
 			//ip->port = atoi(ptr);
@@ -315,14 +360,15 @@ void usage() {
 	puts("                                                                         ");
 	printf("                      Chemin par défaut : '%s'\n", default_in);
 	puts("                      Format :                                           ");
-	puts("                       <ip> <no-port> <description>                      ");
+	puts("                       <ip/fqdn> <no-port> <description>                 ");
 	puts("                      Exemple:                                           ");
 	puts("                      192.168.1.1 2783 livbox                            ");
 	puts("                                                                         ");
 	puts(" -o --output-path     Fichier dans lequel sont stoqués les résultats.    ");
 	printf("                      Chemin par défaut : '%s'\n", default_out);
 	puts("                      Format :                                           ");
-	puts("                      <ip>:<port>:<description>:<ok|ko|to>               ");
+	puts("                      <fileentry>:<ip>:<port>:fqdn:<description>:<ok|ko|to>");
+	puts("                      filentry est ce qui a été placé dans le fichier d'input");
 	puts("                      ok : la connexion répond correctement.             ");
 	puts("                      ko : la connexion répond avec une erreur.          ");
 	puts("                      to : la connexion ne réponds pas dans le temps     ");
@@ -351,8 +397,8 @@ void processus_to_watch (char *who, t_connexion *cnx, int no_cnx, int total_cnx)
 
 	if (VERBOSE) { printf ("%s\t=> work start \n", who); }
 	retour = bni_is_tcp_connectable (cnx->ip, cnx->port, VERBOSE);
-	printf ("%s(%d)\t=> work finished\t|%5d/%5d| %s:%d\t\t(%s)\t => %s\n", who, getpid(), no_cnx, total_cnx, cnx->ip, cnx->port, cnx->domaine, retour == 1 ? "ok":"ko");
-	snprintf (result_str, MAX_ALLOWED_LINE_SIZE, "%s:%d:%s:%s\n", cnx->ip, cnx->port, cnx->domaine, retour == 1 ? "ok":"ko");
+	printf ("%s(%d)\t=> work finished\t|%5d/%5d| %s:%d\t\t%s(%s)\t => %s\n", who, getpid(), no_cnx, total_cnx, cnx->ip, cnx->port, cnx->fqdn, cnx->domaine, retour == 1 ? "ok":"ko");
+	snprintf (result_str, MAX_ALLOWED_LINE_SIZE, "%s:%s:%d:%s:%s:%s\n", cnx->original, cnx->ip, cnx->port, cnx->fqdn, cnx->domaine, retour == 1 ? "ok":"ko");
 	writeResult(result_str);
 }
 
@@ -368,14 +414,18 @@ void wait_and_kill (char *who, int pid_to_kill, t_connexion *cnx, int no_cnx, in
 	char result_str[MAX_ALLOWED_LINE_SIZE + 1];
 	if(VERBOSE) { printf ("%s (%d)\t=> wait => pid to kill = %d\n", who, getpid(), pid_to_kill); }
 	usleep(TIMEOUT_USECONDS);
-	printf ("%s(%d)\t=> work finished\t|%5d/%5d| %s:%d\t\t(%s)\t=> to\n", who, getpid(), no_cnx, total_cnx, cnx->ip, cnx->port, cnx->domaine);
+	printf ("%s(%d)\t=> work finished\t|%5d/%5d| %s:%d\t\t%s(%s)\t=> to\n", who, getpid(), no_cnx, total_cnx, cnx->ip, cnx->port, cnx->fqdn, cnx->domaine);
 	kill_success = kill(pid_to_kill, SIGKILL);
-	snprintf (result_str, MAX_ALLOWED_LINE_SIZE, "%s:%d:%s:to\n", cnx->ip, cnx->port, cnx->domaine);
+	snprintf (result_str, MAX_ALLOWED_LINE_SIZE, "%s:%s:%d:%s:%s:to\n", cnx->original, cnx->ip, cnx->port, cnx->fqdn, cnx->domaine);
 	writeResult(result_str);
 	if (VERBOSE) {
 		printf ("%s(%d)\t=> killed pid => %d\tkill_value => %d\n", who, getpid(), pid_to_kill, kill_success);
 	}
 }
+
+/* FONCTIONS DE LIB */
+
+
 
 bool bni_is_tcp_connectable (const char* ip, unsigned int port, bool verbose) {
 	char * exit_str="0x1dclose0x0d";  // Séquence pour la sortie des serveurs http.
@@ -404,4 +454,110 @@ bool bni_is_tcp_connectable (const char* ip, unsigned int port, bool verbose) {
 	send (s, exit_str, strlen(exit_str), 0);
 
 	return true;
+}
+
+const char* bni_get_first_ip_from_fqdn (const char* fqdn, char* ip, int ip_length, int domain) {
+	struct addrinfo hints;
+	struct addrinfo *results, *p;
+	struct sockaddr_in *ip_socket;
+	struct sockaddr_in6 *ip6_socket;
+	int status;
+	char *hostname;
+	// char ip[MAX_IP_LENGTH + 1];
+	char addr[INET_ADDRSTRLEN + 1];
+	char addr6[INET6_ADDRSTRLEN + 1];
+
+	memset (&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	if ( (status = getaddrinfo (fqdn, NULL, &hints, &results)) != 0) {
+		if (VERBOSE) fprintf (stderr, "getaddrinfo: %s\n", gai_strerror(status) );
+		strncpy ("", ip, ip_length);
+		return "";
+	}
+
+	for (p = results; p != NULL; p = p->ai_next) {
+		if (p->ai_family == AF_INET6) {
+			if (domain != AF_INET6) {
+				continue;
+			}
+			ip6_socket = (struct sockaddr_in6 *) p->ai_addr;
+			inet_ntop( AF_INET6, ip6_socket, addr6, INET6_ADDRSTRLEN );
+			strncpy (ip, addr6, ip_length);
+			return ip;
+		} else {
+			if (domain != AF_INET) {
+				continue;
+			}
+			memset (&addr, 0, sizeof(addr));
+			ip_socket = (struct sockaddr_in *) p->ai_addr;
+			inet_ntop( AF_INET, &ip_socket->sin_addr, addr, INET_ADDRSTRLEN );
+
+			strncpy (ip, addr, ip_length);
+			return ip;
+		}
+	}
+
+	freeaddrinfo (results);
+
+	return "";
+}
+
+int bni_get_domain_ip (const char* ip) {
+	char scan[INET6_ADDRSTRLEN + 1] = "";
+	sscanf(ip, "%[0-9.]s", scan);
+	if (strlen(scan) != strlen(ip)) {
+		sscanf(ip, "%[0-9a-f:]", scan);
+		if (strlen(scan) != strlen(ip)) {
+			if (VERBOSE) fprintf (stderr, "L'ip (%s) renseignées n'est ni de l'ipv4 ne de l'ipv6\n", ip);
+			return 0;
+		} else {
+			return AF_INET6;
+		}
+	} else {
+		return AF_INET;
+	}
+	return 0;
+}
+
+const char* bni_get_fqdn (const char* ip, char* fqdn, int fqdn_max_length) {
+	struct sockaddr_in ip_socket;
+	struct sockaddr_in6 ip6_socket;
+	int gni_err = 0;
+
+
+	switch (bni_get_domain_ip(ip)) {
+		case AF_INET:
+			memset (&ip_socket, 0, sizeof(ip_socket));
+			ip_socket.sin_family = AF_INET;
+			if (inet_pton (AF_INET, ip, &ip_socket.sin_addr) < 0) {
+				if (VERBOSE) fprintf (stderr, "problème de conversion du fqdn au format réseau\n");
+				return "";
+			}
+			if (getnameinfo((struct sockaddr*)&ip_socket, sizeof(ip_socket), fqdn, fqdn_max_length, NULL, 0, NI_NAMEREQD)) {
+				if (VERBOSE) fprintf (stderr, "Impossible de trouver le fqdn corremspondant à %s\n", ip);
+				return "";
+			}
+			break;
+		case AF_INET6:
+			memset (&ip6_socket, 0, sizeof(ip6_socket));
+			ip6_socket.sin6_family = AF_INET6;
+			if (inet_pton (AF_INET6, ip, &ip6_socket.sin6_addr) < 0) {
+				if (VERBOSE) fprintf (stderr, "problème de conversion du fqdn au format réseau\n");
+				return "";
+			}
+			if ((gni_err = getnameinfo((struct sockaddr*)&ip6_socket, sizeof(ip6_socket), fqdn, fqdn_max_length, NULL, 0, NI_NAMEREQD))) {
+				if (VERBOSE) fprintf (stderr, "Impossible de trouver le fqdn corremspondant à %s\n", ip);
+				// show_error(gni_err);
+				return "";
+			}
+			break;
+		default:
+			if (VERBOSE) fprintf (stderr, "Le programme ne check que les ipv4 et ipv6\n");
+			return "";
+
+	}
+	
+	return fqdn;
 }
