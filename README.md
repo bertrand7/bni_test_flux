@@ -43,7 +43,7 @@ Options :
  -o --output-path     Fichier dans lequel sont stoqués les résultats.    
                       Chemin par défaut : 'connextions_result.dat'
                       Format :                                           
-                      &lt;ip&gt;:&lt;port&gt;:&lt;description&gt;:&lt;ok|ko|to&gt;
+                      &lt;entry-file-first-col&gt;:&lt;ipv4&gt;:&lt;found-fqdn&gt;:&lt;port&gt;:&lt;description&gt;:&lt;ok|ko|to&gt;
                       ok : la connexion répond correctement.             
                       ko : la connexion répond avec une erreur.          
                       to : la connexion ne réponds pas dans le temps     
